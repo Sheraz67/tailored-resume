@@ -92,23 +92,22 @@ function updateSetupStatus() {
     ? (promptFileInput.files.length > 0 || loadFromStorage(STORAGE_KEYS.promptFileName))
     : document.getElementById("prompt-text").value.trim().length > 0;
 
-  if (hasResume && hasPrompt) {
+  if (hasResume) {
     setupStatus.textContent = "Ready";
     setupStatus.className = "setup-status ready";
     setupSection.classList.add("configured");
-    setupSubtitle.textContent = "Resume & prompt configured — click to edit";
+    setupSubtitle.textContent = hasPrompt
+      ? "Resume & prompt configured — click to edit"
+      : "Resume configured (using default prompt) — click to edit";
     // Auto-collapse after first successful setup
     if (!setupSection.dataset.userExpanded) {
       setupSection.classList.add("collapsed");
     }
   } else {
-    const missing = [];
-    if (!hasResume) missing.push("resume");
-    if (!hasPrompt) missing.push("prompt");
     setupStatus.textContent = "Setup needed";
     setupStatus.className = "setup-status incomplete";
     setupSection.classList.remove("configured", "collapsed");
-    setupSubtitle.textContent = `Missing: ${missing.join(", ")}`;
+    setupSubtitle.textContent = "Missing: resume";
   }
 }
 
@@ -303,12 +302,7 @@ form.addEventListener("submit", async (e) => {
   const promptText = document.getElementById("prompt-text").value.trim();
   const hasPromptFile = promptFileInput.files.length > 0;
 
-  if (promptUploadActive && !hasPromptFile) {
-    return showError("Please upload a tailoring prompt file in the 'Your Profile' section.");
-  }
-  if (!promptUploadActive && !promptText) {
-    return showError("Please paste the tailoring prompt in the 'Your Profile' section.");
-  }
+  // Prompt is optional — the backend has a built-in default
 
   const fd = new FormData();
   fd.append("api_key", apiKey);
@@ -317,9 +311,10 @@ form.addEventListener("submit", async (e) => {
 
   if (promptUploadActive && hasPromptFile) {
     fd.append("prompt_file", promptFileInput.files[0]);
-  } else {
+  } else if (promptText) {
     fd.append("prompt", promptText);
   }
+  // If neither is provided, the backend uses its built-in default prompt
 
   // Show loading
   loadingOverlay.classList.add("active");
