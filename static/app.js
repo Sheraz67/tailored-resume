@@ -10,6 +10,8 @@ let scrapedMetadata = null;  // Metadata from last URL scrape
 const STORAGE_KEYS = {
   apiKey: "rt_api_key",
   apifyKey: "rt_apify_key",
+  provider: "rt_provider",
+  geminiKey: "rt_gemini_key",
   jd: "rt_jd",
   jdUrl: "rt_jd_url",
   promptText: "rt_prompt_text",
@@ -213,9 +215,36 @@ document.querySelectorAll(".input-toggle").forEach((toggle) => {
   });
 });
 
+// ── Provider toggle ──
+const providerSelect = document.getElementById("ai-provider");
+const claudeKeyGroup = document.getElementById("claude-key-group");
+const geminiKeyGroup = document.getElementById("gemini-key-group");
+
+function updateProviderUI() {
+  const provider = providerSelect.value;
+  claudeKeyGroup.style.display = provider === "claude" ? "" : "none";
+  geminiKeyGroup.style.display = provider === "gemini" ? "" : "none";
+}
+
+providerSelect.addEventListener("change", () => {
+  saveToStorage(STORAGE_KEYS.provider, providerSelect.value);
+  updateProviderUI();
+});
+
+function getActiveApiKey() {
+  const provider = providerSelect.value;
+  if (provider === "gemini") {
+    return document.getElementById("gemini-key").value.trim();
+  }
+  return document.getElementById("api-key").value.trim();
+}
+
 // ── Auto-save text inputs ──
 document.getElementById("api-key").addEventListener("input", (e) => {
   saveToStorage(STORAGE_KEYS.apiKey, e.target.value);
+});
+document.getElementById("gemini-key").addEventListener("input", (e) => {
+  saveToStorage(STORAGE_KEYS.geminiKey, e.target.value);
 });
 document.getElementById("apify-key").addEventListener("input", (e) => {
   saveToStorage(STORAGE_KEYS.apifyKey, e.target.value);
@@ -290,10 +319,12 @@ function restoreFileInput(fileInput, nameDisplay, fileNameKey, fileContentKey) {
 form.addEventListener("submit", async (e) => {
   e.preventDefault();
 
-  const apiKey = document.getElementById("api-key").value.trim();
+  const provider = providerSelect.value;
+  const apiKey = getActiveApiKey();
   const jd = document.getElementById("jd-text").value.trim();
 
-  if (!apiKey) return showError("Please enter your Anthropic API key.");
+  const keyLabel = provider === "gemini" ? "Gemini" : "Anthropic";
+  if (!apiKey) return showError(`Please enter your ${keyLabel} API key.`);
   if (!jd) return showError("Please paste the job description.");
   if (!resumeFileInput.files.length) return showError("Please upload your resume file in the 'Your Profile' section.");
 
@@ -305,6 +336,7 @@ form.addEventListener("submit", async (e) => {
   // Prompt is optional — the backend has a built-in default
 
   const fd = new FormData();
+  fd.append("provider", provider);
   fd.append("api_key", apiKey);
   fd.append("jd", jd);
   fd.append("resume_file", resumeFileInput.files[0]);
@@ -472,10 +504,12 @@ const qaResults = document.getElementById("qa-results");
 
 qaSubmitBtn.addEventListener("click", async () => {
   const questions = document.getElementById("qa-questions").value.trim();
-  const apiKey = document.getElementById("api-key").value.trim();
+  const provider = providerSelect.value;
+  const apiKey = getActiveApiKey();
+  const keyLabel = provider === "gemini" ? "Gemini" : "Anthropic";
 
   if (!questions) return showError("Please paste at least one question.");
-  if (!apiKey) return showError("Please enter your Anthropic API key above.");
+  if (!apiKey) return showError(`Please enter your ${keyLabel} API key above.`);
   if (!tailoredData) return showError("Please tailor a resume first.");
   if (!savedJDText) return showError("Job description context is missing. Please tailor a resume first.");
 
@@ -489,6 +523,7 @@ qaSubmitBtn.addEventListener("click", async () => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        provider: provider,
         api_key: apiKey,
         questions: questions,
         jd: savedJDText,
@@ -818,6 +853,8 @@ function restoreState() {
   // Restore text inputs
   const savedApiKey = loadFromStorage(STORAGE_KEYS.apiKey);
   const savedApifyKey = loadFromStorage(STORAGE_KEYS.apifyKey);
+  const savedProvider = loadFromStorage(STORAGE_KEYS.provider);
+  const savedGeminiKey = loadFromStorage(STORAGE_KEYS.geminiKey);
   const savedJD = loadFromStorage(STORAGE_KEYS.jd);
   const savedJdUrl = loadFromStorage(STORAGE_KEYS.jdUrl);
   const savedPrompt = loadFromStorage(STORAGE_KEYS.promptText);
@@ -825,7 +862,11 @@ function restoreState() {
   const savedJDContext = loadFromStorage(STORAGE_KEYS.savedJD);
   const savedPromptMode = loadFromStorage(STORAGE_KEYS.promptMode);
 
+  if (savedProvider) providerSelect.value = savedProvider;
+  updateProviderUI();
+
   if (savedApiKey) document.getElementById("api-key").value = savedApiKey;
+  if (savedGeminiKey) document.getElementById("gemini-key").value = savedGeminiKey;
   if (savedApifyKey) document.getElementById("apify-key").value = savedApifyKey;
   if (savedJD) document.getElementById("jd-text").value = savedJD;
   if (savedJdUrl) document.getElementById("jd-url").value = savedJdUrl;

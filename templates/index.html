@@ -37,9 +37,20 @@
     <form id="tailor-form">
       <!-- API Keys -->
       <div class="api-key-row">
-        <div class="api-key-group">
+        <div class="api-key-group api-key-group-provider">
+          <label for="ai-provider">AI Provider</label>
+          <select id="ai-provider" class="provider-select">
+            <option value="claude">Claude</option>
+            <option value="gemini">Gemini</option>
+          </select>
+        </div>
+        <div class="api-key-group" id="claude-key-group">
           <label for="api-key">Anthropic API Key</label>
           <input type="password" id="api-key" placeholder="sk-ant-api03-..." autocomplete="off" />
+        </div>
+        <div class="api-key-group" id="gemini-key-group" style="display: none;">
+          <label for="gemini-key">Gemini API Key</label>
+          <input type="password" id="gemini-key" placeholder="AIza..." autocomplete="off" />
         </div>
         <div class="api-key-group">
           <label for="apify-key">Apify API Token <span class="label-hint">(for URL scraping)</span></label>

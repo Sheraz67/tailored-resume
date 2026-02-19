@@ -13,6 +13,8 @@ import requests
 from flask import Flask, render_template, request, jsonify, send_file
 from fpdf import FPDF
 import anthropic
+from google import genai
+from google.genai import types
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024  # 10 MB max upload
@@ -370,16 +372,12 @@ Apply ALL phases above to the following inputs:
 
 
 # ─────────────────────────────────────────────
-# Claude API call
+# AI API calls (Claude + Gemini)
 # ─────────────────────────────────────────────
 
-def tailor_resume(api_key: str, resume_text: str, prompt_text: str, jd_text: str) -> dict:
-    """Call Claude to tailor the resume. Returns structured JSON."""
-
-    client = anthropic.Anthropic(api_key=api_key)
-
+def _build_tailor_user_msg(resume_text: str, prompt_text: str, jd_text: str) -> str:
+    """Build the full prompt for resume tailoring (shared across providers)."""
     system_msg = prompt_text.strip()
-
     user_msg = f"""Here are the two inputs:
 
 === CANDIDATE RESUME ===
@@ -423,22 +421,54 @@ IMPORTANT: Return ONLY the tailored resume as a JSON object with this exact stru
 
 Return ONLY the JSON object, no markdown code fences, no extra text. Just pure JSON.
 """
+    return f"{system_msg}\n\n{user_msg}"
 
-    message = client.messages.create(
-        model="claude-sonnet-4-5-20250929",
-        max_tokens=8000,
-        messages=[
-            {"role": "user", "content": f"{system_msg}\n\n{user_msg}"}
-        ],
-    )
 
-    raw = message.content[0].text.strip()
-
-    # Strip markdown code fences if Claude wraps them anyway
+def _strip_code_fences(raw: str) -> str:
+    """Strip markdown code fences from AI response."""
+    raw = raw.strip()
     if raw.startswith("```"):
         raw = re.sub(r"^```(?:json)?\s*", "", raw)
         raw = re.sub(r"\s*```$", "", raw)
+    return raw
 
+
+def _call_claude(api_key: str, prompt: str, max_tokens: int = 8000) -> str:
+    """Call Claude and return the raw text response."""
+    client = anthropic.Anthropic(api_key=api_key)
+    message = client.messages.create(
+        model="claude-sonnet-4-5-20250929",
+        max_tokens=max_tokens,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    return message.content[0].text.strip()
+
+
+def _call_gemini(api_key: str, prompt: str, max_tokens: int = 8000) -> str:
+    """Call Gemini and return the raw text response."""
+    client = genai.Client(api_key=api_key)
+    response = client.models.generate_content(
+        model="gemini-2.0-flash",
+        contents=prompt,
+        config=types.GenerateContentConfig(
+            max_output_tokens=max_tokens,
+        ),
+    )
+    return response.text.strip()
+
+
+def call_ai(provider: str, api_key: str, prompt: str, max_tokens: int = 8000) -> str:
+    """Route to the correct AI provider and return raw text."""
+    if provider == "gemini":
+        return _call_gemini(api_key, prompt, max_tokens)
+    return _call_claude(api_key, prompt, max_tokens)
+
+
+def tailor_resume(api_key: str, resume_text: str, prompt_text: str, jd_text: str, provider: str = "claude") -> dict:
+    """Call AI to tailor the resume. Returns structured JSON."""
+    prompt = _build_tailor_user_msg(resume_text, prompt_text, jd_text)
+    raw = call_ai(provider, api_key, prompt)
+    raw = _strip_code_fences(raw)
     return json.loads(raw)
 
 
@@ -775,9 +805,11 @@ def api_scrape_jd():
 @app.route("/api/tailor", methods=["POST"])
 def api_tailor():
     try:
+        provider = request.form.get("provider", "claude").strip().lower()
         api_key = request.form.get("api_key", "").strip()
         if not api_key:
-            return jsonify({"error": "Anthropic API key is required."}), 400
+            label = "Gemini" if provider == "gemini" else "Anthropic"
+            return jsonify({"error": f"{label} API key is required."}), 400
 
         jd_text = request.form.get("jd", "").strip()
         resume_text_direct = request.form.get("resume_text", "").strip()
@@ -813,8 +845,7 @@ def api_tailor():
         if not resume_text:
             return jsonify({"error": "Please upload a resume file or paste resume text."}), 400
 
-        # Call Claude
-        result = tailor_resume(api_key, resume_text, prompt_text, jd_text)
+        result = tailor_resume(api_key, resume_text, prompt_text, jd_text, provider)
         return jsonify({"success": True, "data": result})
 
     except json.JSONDecodeError as e:
@@ -824,7 +855,10 @@ def api_tailor():
     except anthropic.RateLimitError:
         return jsonify({"error": "Rate limited. Please wait a moment and try again."}), 429
     except Exception as e:
-        return jsonify({"error": f"Something went wrong: {str(e)}"}), 500
+        err_str = str(e)
+        if "API_KEY_INVALID" in err_str or "401" in err_str:
+            return jsonify({"error": "Invalid API key. Please check your Gemini API key."}), 401
+        return jsonify({"error": f"Something went wrong: {err_str}"}), 500
 
 
 @app.route("/api/answer-questions", methods=["POST"])
@@ -835,6 +869,7 @@ def api_answer_questions():
         if not data:
             return jsonify({"error": "No data provided."}), 400
 
+        provider = data.get("provider", "claude").strip().lower()
         api_key = data.get("api_key", "").strip()
         questions = data.get("questions", "").strip()
         jd_text = data.get("jd", "").strip()
@@ -864,8 +899,6 @@ def api_answer_questions():
         if edu:
             resume_lines.append(f"\nEducation: {edu.get('degree', '')} — {edu.get('school', '')}")
         resume_text = "\n".join(resume_lines)
-
-        client = anthropic.Anthropic(api_key=api_key)
 
         system_prompt = """You are an expert job application assistant. You help candidates write compelling,
 authentic answers to job application questions. You have deep context about:
@@ -900,18 +933,9 @@ Questions:
 Return ONLY a JSON array, no markdown code fences, no extra text. Example format:
 [{{"question": "Why do you want this role?", "answer": "Your answer here..."}}]"""
 
-        message = client.messages.create(
-            model="claude-sonnet-4-5-20250929",
-            max_tokens=4000,
-            messages=[
-                {"role": "user", "content": f"{system_prompt}\n\n{user_msg}"}
-            ],
-        )
-
-        raw = message.content[0].text.strip()
-        if raw.startswith("```"):
-            raw = re.sub(r"^```(?:json)?\s*", "", raw)
-            raw = re.sub(r"\s*```$", "", raw)
+        full_prompt = f"{system_prompt}\n\n{user_msg}"
+        raw = call_ai(provider, api_key, full_prompt, max_tokens=4000)
+        raw = _strip_code_fences(raw)
 
         answers = json.loads(raw)
         return jsonify({"success": True, "answers": answers})
@@ -923,7 +947,10 @@ Return ONLY a JSON array, no markdown code fences, no extra text. Example format
     except anthropic.RateLimitError:
         return jsonify({"error": "Rate limited. Please wait and try again."}), 429
     except Exception as e:
-        return jsonify({"error": f"Something went wrong: {str(e)}"}), 500
+        err_str = str(e)
+        if "API_KEY_INVALID" in err_str or "401" in err_str:
+            return jsonify({"error": "Invalid API key. Please check your Gemini API key."}), 401
+        return jsonify({"error": f"Something went wrong: {err_str}"}), 500
 
 
 @app.route("/api/download-pdf", methods=["POST"])
