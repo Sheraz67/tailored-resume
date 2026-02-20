@@ -476,6 +476,28 @@ def tailor_resume(api_key: str, resume_text: str, prompt_text: str, jd_text: str
 # PDF generation
 # ─────────────────────────────────────────────
 
+def _clean_text(text: str) -> str:
+    """Replace Unicode characters unsupported by Helvetica with ASCII equivalents."""
+    return (text
+        .replace("\u2013", "-")   # en dash
+        .replace("\u2014", "-")   # em dash
+        .replace("\u2018", "'")   # left single quote
+        .replace("\u2019", "'")   # right single quote
+        .replace("\u201c", '"')   # left double quote
+        .replace("\u201d", '"')   # right double quote
+        .replace("\u2022", "-")   # bullet
+        .replace("\u2026", "...")  # ellipsis
+        .replace("\u00a0", " ")   # non-breaking space
+        .replace("\u2010", "-")   # hyphen
+        .replace("\u2011", "-")   # non-breaking hyphen
+        .replace("\u2012", "-")   # figure dash
+        .replace("\u2015", "-")   # horizontal bar
+        .replace("\u2027", "-")   # hyphenation point
+        .replace("\u2032", "'")   # prime
+        .replace("\u2033", '"')   # double prime
+    )
+
+
 class ResumePDF(FPDF):
     BLUE = (44, 95, 138)
     DARK = (26, 26, 26)
@@ -492,7 +514,7 @@ class ResumePDF(FPDF):
     def section_header(self, text):
         self.set_font("Helvetica", "B", 12)
         self.set_text_color(*self.BLUE)
-        self.cell(0, 8, text.upper(), new_x="LMARGIN", new_y="NEXT")
+        self.cell(0, 8, _clean_text(text).upper(), new_x="LMARGIN", new_y="NEXT")
         self.set_draw_color(*self.BLUE)
         self.line(self.l_margin, self.get_y(), self.w - self.r_margin, self.get_y())
         self.ln(3)
@@ -500,7 +522,7 @@ class ResumePDF(FPDF):
     def body_text(self, text, size=10):
         self.set_font("Helvetica", "", size)
         self.set_text_color(*self.BODY)
-        self.multi_cell(0, 5, text)
+        self.multi_cell(0, 5, _clean_text(text))
 
     def bullet(self, text):
         x = self.get_x()
@@ -508,9 +530,7 @@ class ResumePDF(FPDF):
         self.set_text_color(*self.BODY)
         indent = 8
         self.set_x(x + indent)
-        # Replace problematic characters
-        clean = text.replace("\u2013", "-").replace("\u2014", "-").replace("\u2018", "'").replace("\u2019", "'").replace("\u201c", '"').replace("\u201d", '"').replace("\u2022", "-").replace("\u2026", "...")
-        self.multi_cell(self.w - self.r_margin - self.get_x(), 4.5, f"- {clean}")
+        self.multi_cell(self.w - self.r_margin - self.get_x(), 4.5, f"- {_clean_text(text)}")
         self.ln(0.5)
 
 
@@ -523,18 +543,17 @@ def generate_pdf(data: dict) -> bytes:
     # Name
     pdf.set_font("Helvetica", "B", 20)
     pdf.set_text_color(*ResumePDF.DARK)
-    name = data.get("name", "").encode("latin-1", "replace").decode("latin-1")
-    pdf.cell(0, 10, name, align="C", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(0, 10, _clean_text(data.get("name", "")), align="C", new_x="LMARGIN", new_y="NEXT")
 
     # Title
     pdf.set_font("Helvetica", "", 13)
     pdf.set_text_color(*ResumePDF.BLUE)
-    pdf.cell(0, 7, data.get("title", ""), align="C", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(0, 7, _clean_text(data.get("title", "")), align="C", new_x="LMARGIN", new_y="NEXT")
 
     # Contact
     pdf.set_font("Helvetica", "", 9.5)
     pdf.set_text_color(*ResumePDF.GRAY)
-    pdf.cell(0, 6, data.get("contact", ""), align="C", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(0, 6, _clean_text(data.get("contact", "")), align="C", new_x="LMARGIN", new_y="NEXT")
     pdf.ln(4)
 
     # Summary
@@ -545,8 +564,8 @@ def generate_pdf(data: dict) -> bytes:
     # Skills
     pdf.section_header("Skills")
     for skill in data.get("skills", []):
-        cat = skill.get("category", "")
-        items = skill.get("items", "")
+        cat = _clean_text(skill.get("category", ""))
+        items = _clean_text(skill.get("items", ""))
         pdf.set_font("Helvetica", "B", 9.5)
         pdf.set_text_color(*ResumePDF.BODY)
         label = f"{cat}: "
@@ -562,14 +581,14 @@ def generate_pdf(data: dict) -> bytes:
     for job in data.get("experience", []):
         pdf.set_font("Helvetica", "B", 11)
         pdf.set_text_color(*ResumePDF.DARK)
-        pdf.cell(0, 6, job.get("job_title", ""), new_x="LMARGIN", new_y="NEXT")
+        pdf.cell(0, 6, _clean_text(job.get("job_title", "")), new_x="LMARGIN", new_y="NEXT")
 
         pdf.set_font("Helvetica", "", 9.5)
         pdf.set_text_color(*ResumePDF.BLUE)
-        company_ctx = f"{job.get('company', '')} -- {job.get('context', '')}"
+        company_ctx = _clean_text(f"{job.get('company', '')} -- {job.get('context', '')}")
         pdf.cell(pdf.get_string_width(company_ctx) + 2, 5, company_ctx)
         pdf.set_text_color(*ResumePDF.GRAY)
-        meta = f"  |  {job.get('dates', '')}  |  {job.get('location', '')}"
+        meta = _clean_text(f"  |  {job.get('dates', '')}  |  {job.get('location', '')}")
         pdf.cell(0, 5, meta, new_x="LMARGIN", new_y="NEXT")
         pdf.ln(1)
 
@@ -583,10 +602,10 @@ def generate_pdf(data: dict) -> bytes:
         pdf.section_header("Education")
         pdf.set_font("Helvetica", "B", 10.5)
         pdf.set_text_color(*ResumePDF.BODY)
-        pdf.cell(0, 6, edu.get("degree", ""), new_x="LMARGIN", new_y="NEXT")
+        pdf.cell(0, 6, _clean_text(edu.get("degree", "")), new_x="LMARGIN", new_y="NEXT")
         pdf.set_font("Helvetica", "", 10)
         pdf.set_text_color(*ResumePDF.GRAY)
-        edu_meta = f"{edu.get('school', '')}  |  {edu.get('dates', '')}  |  {edu.get('location', '')}"
+        edu_meta = _clean_text(f"{edu.get('school', '')}  |  {edu.get('dates', '')}  |  {edu.get('location', '')}")
         pdf.cell(0, 5, edu_meta)
 
     return pdf.output()
