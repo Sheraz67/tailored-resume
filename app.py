@@ -26,8 +26,34 @@ app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024  # 10 MB max upload
 
 def parse_docx(file_bytes: bytes) -> str:
     from docx import Document
+    from docx.table import Table
+    from docx.text.paragraph import Paragraph
+    from docx.oxml.ns import qn
+
     doc = Document(io.BytesIO(file_bytes))
-    return "\n".join(p.text for p in doc.paragraphs if p.text.strip())
+    parts = []
+
+    # Iterate body elements in document order (paragraphs AND tables)
+    for element in doc.element.body:
+        tag = element.tag.split("}")[-1] if "}" in element.tag else element.tag
+        if tag == "p":
+            para = Paragraph(element, doc)
+            if para.text.strip():
+                parts.append(para.text.strip())
+        elif tag == "tbl":
+            table = Table(element, doc)
+            for row in table.rows:
+                row_texts = []
+                for cell in row.cells:
+                    cell_text = " ".join(
+                        p.text.strip() for p in cell.paragraphs if p.text.strip()
+                    )
+                    if cell_text:
+                        row_texts.append(cell_text)
+                if row_texts:
+                    parts.append(" | ".join(row_texts))
+
+    return "\n".join(parts)
 
 
 def parse_pdf(file_bytes: bytes) -> str:
@@ -50,6 +76,45 @@ PARSERS = {
     ".pdf": parse_pdf,
     ".txt": parse_txt,
 }
+
+
+def extract_personal_info_docx(file_bytes: bytes) -> dict:
+    """Extract name, contact details from DOCX tables/headers before AI touches it."""
+    from docx import Document
+    from docx.table import Table
+
+    doc = Document(io.BytesIO(file_bytes))
+    info = {"name": "", "contact": ""}
+
+    # Check tables first (common resume format: header table with name + contact)
+    for element in doc.element.body:
+        tag = element.tag.split("}")[-1] if "}" in element.tag else element.tag
+        if tag == "tbl":
+            table = Table(element, doc)
+            for row in table.rows:
+                for cell in row.cells:
+                    for p in cell.paragraphs:
+                        style = p.style.name if p.style else ""
+                        text = p.text.strip()
+                        if not text:
+                            continue
+                        # Title style = candidate name
+                        if style == "Title" and not info["name"]:
+                            info["name"] = text
+                        # Build contact from non-title, non-subtitle paragraphs
+                        elif style not in ("Title", "Subtitle") and text:
+                            if info["contact"]:
+                                info["contact"] += " | " + text
+                            else:
+                                info["contact"] = text
+            # Only check the first table (header table)
+            break
+
+    # Clean up contact: collapse whitespace, normalize separators
+    if info["contact"]:
+        info["contact"] = re.sub(r"\s+", " ", info["contact"]).strip()
+
+    return info
 
 
 # ─────────────────────────────────────────────
@@ -850,13 +915,18 @@ def api_tailor():
 
         # Parse resume from file or text
         resume_text = ""
+        personal_info = None
         if "resume_file" in request.files:
             f = request.files["resume_file"]
             if f.filename:
                 ext = os.path.splitext(f.filename)[1].lower()
                 if ext not in PARSERS:
                     return jsonify({"error": f"Unsupported file type: {ext}. Use .docx, .pdf, or .txt"}), 400
-                resume_text = PARSERS[ext](f.read())
+                file_bytes = f.read()
+                resume_text = PARSERS[ext](file_bytes)
+                # Extract original personal info from DOCX to preserve it
+                if ext == ".docx":
+                    personal_info = extract_personal_info_docx(file_bytes)
 
         if not resume_text and resume_text_direct:
             resume_text = resume_text_direct
@@ -865,6 +935,14 @@ def api_tailor():
             return jsonify({"error": "Please upload a resume file or paste resume text."}), 400
 
         result = tailor_resume(api_key, resume_text, prompt_text, jd_text, provider)
+
+        # Force-override personal info with original values (never let AI change these)
+        if personal_info:
+            if personal_info.get("name"):
+                result["name"] = personal_info["name"]
+            if personal_info.get("contact"):
+                result["contact"] = personal_info["contact"]
+
         return jsonify({"success": True, "data": result})
 
     except json.JSONDecodeError as e:
