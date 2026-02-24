@@ -78,6 +78,50 @@ PARSERS = {
 }
 
 
+def _extract_paragraph_text_with_links(paragraph) -> str:
+    """Extract paragraph text, replacing field-code hyperlink display text with actual URLs."""
+    from docx.oxml.ns import qn
+
+    # Collect field-code hyperlinks: HYPERLINK "url" -> display text
+    # Field codes use: fldChar(begin) -> instrText(HYPERLINK "url") -> fldChar(separate) -> run(display) -> fldChar(end)
+    runs = paragraph._element.findall(qn("w:r"))
+    parts = []
+    in_hyperlink = False
+    hyperlink_url = None
+    skip_until_end = False
+
+    for run in runs:
+        fld_char = run.find(qn("w:fldChar"))
+        instr_text = run.find(qn("w:instrText"))
+        text_el = run.find(qn("w:t"))
+
+        if fld_char is not None:
+            fld_type = fld_char.get(qn("w:fldCharType"))
+            if fld_type == "begin":
+                in_hyperlink = True
+                hyperlink_url = None
+            elif fld_type == "separate":
+                skip_until_end = True
+            elif fld_type == "end":
+                in_hyperlink = False
+                skip_until_end = False
+                hyperlink_url = None
+        elif instr_text is not None and in_hyperlink:
+            m = re.search(r'HYPERLINK\s+"([^"]+)"', instr_text.text or "")
+            if m:
+                hyperlink_url = m.group(1)
+        elif text_el is not None:
+            if skip_until_end and hyperlink_url:
+                # Replace display text (e.g. "Linkedin") with the actual URL
+                parts.append(hyperlink_url)
+                hyperlink_url = None  # Only emit URL once per field
+            elif not skip_until_end:
+                parts.append(text_el.text or "")
+
+    result = "".join(parts).strip()
+    return result if result else paragraph.text.strip()
+
+
 def extract_personal_info_docx(file_bytes: bytes) -> dict:
     """Extract name, contact details from DOCX tables/headers before AI touches it."""
     from docx import Document
@@ -95,7 +139,7 @@ def extract_personal_info_docx(file_bytes: bytes) -> dict:
                 for cell in row.cells:
                     for p in cell.paragraphs:
                         style = p.style.name if p.style else ""
-                        text = p.text.strip()
+                        text = _extract_paragraph_text_with_links(p)
                         if not text:
                             continue
                         # Title style = candidate name
@@ -110,8 +154,9 @@ def extract_personal_info_docx(file_bytes: bytes) -> dict:
             # Only check the first table (header table)
             break
 
-    # Clean up contact: collapse whitespace, normalize separators
+    # Clean up contact: collapse whitespace, strip mailto: prefix, normalize separators
     if info["contact"]:
+        info["contact"] = info["contact"].replace("mailto:", "")
         info["contact"] = re.sub(r"\s+", " ", info["contact"]).strip()
 
     return info
