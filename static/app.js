@@ -753,25 +753,35 @@ function renderTracker() {
     tdDate.textContent = entry.date || "";
     tr.appendChild(tdDate);
 
-    // Job Link
+    // Job Link (editable)
     const tdLink = document.createElement("td");
+    const linkWrap = document.createElement("div");
+    linkWrap.style.display = "flex";
+    linkWrap.style.alignItems = "center";
+    linkWrap.style.gap = "6px";
+    const linkSpan = document.createElement("span");
+    linkSpan.className = "tracker-editable";
+    linkSpan.contentEditable = "true";
+    linkSpan.style.minWidth = "80px";
+    linkSpan.textContent = entry.url || "";
+    linkSpan.addEventListener("blur", () => {
+      const val = linkSpan.textContent.trim();
+      updateTrackerEntry(entry.id, "url", val);
+      renderTracker();
+    });
+    linkWrap.appendChild(linkSpan);
     if (entry.url) {
       const a = document.createElement("a");
       a.className = "tracker-link";
       a.href = entry.url;
       a.target = "_blank";
       a.rel = "noopener";
-      try {
-        const u = new URL(entry.url);
-        a.textContent = u.hostname + u.pathname.substring(0, 30) + (u.pathname.length > 30 ? "..." : "");
-      } catch {
-        a.textContent = entry.url.substring(0, 40);
-      }
-      a.title = entry.url;
-      tdLink.appendChild(a);
-    } else {
-      tdLink.textContent = "-";
+      a.textContent = "\u2197";
+      a.title = "Open link";
+      a.style.flexShrink = "0";
+      linkWrap.appendChild(a);
     }
+    tdLink.appendChild(linkWrap);
     tr.appendChild(tdLink);
 
     // Platform (where the job was found)
