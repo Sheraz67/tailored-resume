@@ -406,7 +406,7 @@ function buildResumeHTML(d) {
   let html = "";
   html += `<div class="r-name">${esc(d.name || "")}</div>`;
   html += `<div class="r-title">${esc(d.title || "")}</div>`;
-  html += `<div class="r-contact">${esc(d.contact || "")}</div>`;
+  html += `<div class="r-contact">${linkify(d.contact || "")}</div>`;
 
   html += `<div class="r-section-header">Summary</div>`;
   html += `<div class="r-summary">${esc(d.summary || "")}</div>`;
@@ -441,6 +441,15 @@ function esc(str) {
   const div = document.createElement("div");
   div.textContent = str || "";
   return div.innerHTML;
+}
+
+function linkify(str) {
+  // Escape HTML first, then replace URLs with clickable links
+  const escaped = esc(str);
+  return escaped.replace(
+    /(https?:\/\/[^\s|,<]+)/g,
+    '<a href="$1" target="_blank" rel="noopener" style="color:#2c5f8a;text-decoration:underline;">$1</a>'
+  );
 }
 
 // ── Tabs ──
