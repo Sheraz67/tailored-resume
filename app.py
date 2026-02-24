@@ -83,12 +83,13 @@ def _extract_paragraph_text_with_links(paragraph) -> str:
     from docx.oxml.ns import qn
 
     # Collect field-code hyperlinks: HYPERLINK "url" -> display text
-    # Field codes use: fldChar(begin) -> instrText(HYPERLINK "url") -> fldChar(separate) -> run(display) -> fldChar(end)
+    # Field codes use: fldChar(begin) -> instrText(HYPERLINK "url") -> fldChar(separate) -> runs(display) -> fldChar(end)
     runs = paragraph._element.findall(qn("w:r"))
     parts = []
-    in_hyperlink = False
+    in_field = False
     hyperlink_url = None
-    skip_until_end = False
+    collecting_display = False
+    display_parts = []
 
     for run in runs:
         fld_char = run.find(qn("w:fldChar"))
@@ -98,24 +99,29 @@ def _extract_paragraph_text_with_links(paragraph) -> str:
         if fld_char is not None:
             fld_type = fld_char.get(qn("w:fldCharType"))
             if fld_type == "begin":
-                in_hyperlink = True
+                in_field = True
                 hyperlink_url = None
+                display_parts = []
             elif fld_type == "separate":
-                skip_until_end = True
+                collecting_display = True
             elif fld_type == "end":
-                in_hyperlink = False
-                skip_until_end = False
+                # Emit the collected hyperlink
+                if hyperlink_url and display_parts:
+                    display = "".join(display_parts).strip()
+                    url = hyperlink_url.replace("mailto:", "")
+                    parts.append(f"[{display}]({url})")
+                in_field = False
+                collecting_display = False
                 hyperlink_url = None
-        elif instr_text is not None and in_hyperlink:
+                display_parts = []
+        elif instr_text is not None and in_field:
             m = re.search(r'HYPERLINK\s+"([^"]+)"', instr_text.text or "")
             if m:
                 hyperlink_url = m.group(1)
         elif text_el is not None:
-            if skip_until_end and hyperlink_url:
-                # Replace display text (e.g. "Linkedin") with the actual URL
-                parts.append(hyperlink_url)
-                hyperlink_url = None  # Only emit URL once per field
-            elif not skip_until_end:
+            if collecting_display and hyperlink_url:
+                display_parts.append(text_el.text or "")
+            elif not in_field:
                 parts.append(text_el.text or "")
 
     result = "".join(parts).strip()
@@ -154,9 +160,8 @@ def extract_personal_info_docx(file_bytes: bytes) -> dict:
             # Only check the first table (header table)
             break
 
-    # Clean up contact: collapse whitespace, strip mailto: prefix, normalize separators
+    # Clean up contact: collapse whitespace, normalize separators
     if info["contact"]:
-        info["contact"] = info["contact"].replace("mailto:", "")
         info["contact"] = re.sub(r"\s+", " ", info["contact"]).strip()
 
     return info

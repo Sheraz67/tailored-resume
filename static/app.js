@@ -444,12 +444,25 @@ function esc(str) {
 }
 
 function linkify(str) {
-  // Escape HTML first, then replace URLs with clickable links
+  // Escape HTML first, then render [text](url) markdown links and bare URLs
   const escaped = esc(str);
-  return escaped.replace(
-    /(https?:\/\/[^\s|,<]+)/g,
+  // Markdown-style [display text](url) — supports https and email links
+  let result = escaped.replace(
+    /\[([^\]]+)\]\(([^)]+)\)/g,
+    (match, text, url) => {
+      let href = url;
+      // Add mailto: for email addresses, https:// check for web URLs
+      if (url.includes("@") && !url.startsWith("mailto:")) href = "mailto:" + url;
+      const target = url.startsWith("http") ? ' target="_blank" rel="noopener"' : "";
+      return `<a href="${href}"${target} style="color:#2c5f8a;text-decoration:underline;">${text}</a>`;
+    }
+  );
+  // Bare URLs not already inside an href
+  result = result.replace(
+    /(?<!href=")(https?:\/\/[^\s|,<]+)/g,
     '<a href="$1" target="_blank" rel="noopener" style="color:#2c5f8a;text-decoration:underline;">$1</a>'
   );
+  return result;
 }
 
 // ── Tabs ──
