@@ -563,7 +563,7 @@ def _call_gemini(api_key: str, prompt: str, max_tokens: int = 8000) -> str:
     """Call Gemini and return the raw text response."""
     client = genai.Client(api_key=api_key)
     response = client.models.generate_content(
-        model="gemini-2.0-flash",
+        model="gemini-2.5-flash",
         contents=prompt,
         config=types.GenerateContentConfig(
             max_output_tokens=max_tokens,
