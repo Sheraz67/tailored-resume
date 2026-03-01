@@ -302,10 +302,11 @@ FOLLOW THESE RULES WITH ZERO EXCEPTIONS:
     - If a JD requirement has NO match in the resume, leave it out — do NOT fake it
 
 3.2 — TITLE OPTIMIZATION
-    - Match the resume title to the JD title as closely as possible
-    - If JD says "Senior Frontend-Focused Full Stack Engineer", the resume title
-      should reflect frontend-first positioning
-    - Do NOT copy the JD title verbatim if it sounds unnatural — adapt it
+    - Keep the resume title GENERIC and seniority-appropriate (e.g. "Senior Software Engineer", "Staff Engineer", "Engineering Manager")
+    - NEVER include specific technologies, frameworks, or languages in the title (no ".NET Developer", "Java Engineer", "React Developer", etc.)
+    - Match the SENIORITY LEVEL from the JD (Junior, Mid, Senior, Staff, Principal, Lead, etc.)
+    - Match the ROLE TYPE from the JD (Software Engineer, Full Stack Engineer, Backend Engineer, Frontend Engineer, etc.) but keep it broad
+    - Do NOT copy the JD title verbatim — use a clean, professional variant
 
 3.3 — SUMMARY REWRITING (Most critical section — recruiters read this first)
 
